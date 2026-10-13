@@ -1,4 +1,131 @@
-I have the next projects, one is the original ("KLD Senior Engineer Assessment (DedupeTool)") and the second one is the one I modified ("DedupTool") , I changed the Deduper.cs , LoadFileWriter.cs and the Program.cs , help me complete the tests for the changes made in Deduper.cs
+Yael: I have the next projects, one is the original ("KLD Senior Engineer Assessment (DedupeTool)") and the second one is the one I modified ("DedupTool") , I changed the Deduper.cs , LoadFileWriter.cs and the Program.cs , help me complete the tests for the changes made in Deduper.cs
+
+
+I compared both projects and reviewed the changes in `Deduper.cs` in your modified `DedupTool` project.
+
+Your implementation changes the deduplication strategy significantly. The original implementation deduplicates individual documents using their SHA-256 hashes, whereas the modified implementation introduces family-aware deduplication, cross-mailbox email matching, deterministic output, and input validation.
+
+Your existing `DeduperTests.cs` already covers the original behavior and two important new scenarios. However, several edge cases introduced by the new implementation still need coverage.
+
+## 1. Completed test suite
+
+I've expanded your test suite and packaged the updated project for you.
+
+DedupTool — Updated Tests
+
+C# / .NET 8 / xUnit
+
+Includes your modified implementation and expanded tests.
+
+Download the updated project ZIP
+
+The expanded suite contains 21 test cases, including your existing tests and the new coverage below.
+
+| Area                 | Tests added or covered                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------ |
+| Family integrity     | Attachments remain with their email; nested attachments resolve to the top-level family          |
+| Family deduplication | A less complete duplicate family is suppressed as a whole; deterministic tie-breaking            |
+| Email identity       | Sender and recipient normalization, recipient ordering, subject/body differences, and timestamps |
+| Validation           | Duplicate document IDs, missing parents, parent cycles, and invalid email dates                  |
+| Output consistency   | Stable document ordering, UTC date formatting, and empty dates for loose files                   |
+| Original behavior    | Duplicate loose-file suppression and CSV header preservation                                     |
+
+## 2. Most important new tests
+
+These are the tests I consider most valuable for demonstrating that your changes to `Deduper.cs` work as intended.
+
+### A. Duplicate email families with different attachment sets
+
+This verifies that the tool preserves the most complete family and suppresses the less complete duplicate family entirely.
+
+```
+[Fact]
+public void DuplicateEmailFamilyWithSubsetOfAttachments_IsSuppressedAsAWhole()
+{
+    var result = Deduper.Run(B(
+        Email("E2", "c2", "email-bytes-2"),
+        Attach("A2x", "c2", "E2", "x"),
+        Email("E1", "c1", "email-bytes-1"),
+        Attach("A1x", "c1", "E1", "x"),
+        Attach("A1y", "c1", "E1", "y")));
+
+    Assert.Equal(new[] { "A1x", "A1y", "E1" }, Ids(result));
+    Assert.Equal(2, result.Suppressed);
+    Assert.DoesNotContain(
+        result.Rows, r => r.DocId == "E2" || r.DocId == "A2x");
+}
+```
+
+Why it matters: A reviewer must not receive an email without the attachments associated with the version of that email retained by the deduplication process.
+
+### B. Duplicate document IDs
+
+```
+[Fact]
+public void DuplicateDocIds_ThrowInvalidDataException()
+{
+    var ex = Assert.Throws<InvalidDataException>(() =>
+        Deduper.Run(B(
+            Loose("A", "c1", "h1"),
+            Loose("A", "c2", "h2"))));
+
+    Assert.Contains("docId 'A' appears more than once", ex.Message);
+}
+```
+
+Why it matters: Your updated implementation now rejects duplicate IDs rather than silently overwriting documents in the lookup dictionary.
+
+### C. Nested attachments
+
+```
+[Fact]
+public void NestedAttachments_ResolveToTopLevelEmailFamily()
+{
+    var result = Deduper.Run(B(
+        Attach("A2", "c1", "A1", "nested"),
+        Email("E1", "c1", "email-hash"),
+        Attach("A1", "c1", "E1", "outer")));
+
+    Assert.Equal(new[] { "A1", "A2", "E1" }, Ids(result));
+    Assert.All(result.Rows, row =>
+        Assert.Equal("E1", row.FamilyId));
+    Assert.Equal(
+        "A1", result.Rows.Single(r => r.DocId == "A2").ParentId);
+}
+```
+
+Why it matters: The specification explicitly permits attachment hierarchies. This test verifies that a nested attachment receives the top-level email's `FamilyID`, even when the input documents are not ordered parent-first.
+
+## 3. How to run the tests
+
+I couldn't execute the suite in this environment because the .NET CLI (`dotnet`) isn't installed here. The project has been updated, but the tests have not yet been verified by an actual test run.
+
+On your machine, open a terminal in the extracted project directory and run:
+
+```
+dotnet restore
+dotnet test
+```
+
+For more detailed output:
+
+```
+dotnet test --logger "console;verbosity=normal"
+```
+
+If any test fails, share the output and I can help determine whether the failure is in the test expectations or the implementation.
+
+## 4. One design consideration worth reviewing
+
+Your implementation uses a `HashSet<string>` of attachment hashes to determine whether one family's attachments are a subset of another family's attachments. This is appropriate if attachment identity is based on the presence of each distinct hash. If multiple attachments with identical hashes must be treated as separate items, a set would lose that multiplicity, and a multiset or frequency-based comparison would be needed instead.
+
+Also, your specification states that each custodian's production set must remain complete and self-contained. Your current family-level suppression strategy should be reviewed against that requirement, because suppressing a duplicate family from one custodian may remove documents that custodian needs to produce independently.
+
+These are important considerations to address before treating the implementation as production-ready.
+
+
+Yael: Exactly what did you changed ?
+
 
 ## 5. Exact file-level changes
 
